@@ -23,10 +23,14 @@ run:
 	   .
 
 build:
-	go run -v \
+	go build -v \
            -ldflags "\
               -X main.AppVersion=$(VERSION) \
               -X main.BuildHash=$(HASH) \
               -X main.BuildDate=$(DATE) \
 			" \
 	   .
+
+install: build
+	install ./keyproofs /usr/local/bin
+	install ./sour.is-keyproofs.service /lib/systemd/system

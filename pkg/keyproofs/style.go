@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/lucasb-eyer/go-colorful"
-	"sour.is/x/toolbox/log"
+	"github.com/rs/zerolog/log"
 )
 
 type StyleKey string
@@ -26,11 +26,13 @@ type Style struct {
 }
 
 func (s *identity) getStyle(ctx context.Context, email string) (*Style, error) {
+	log := log.Ctx(ctx)
+
 	avatarHost, styleHost, err := styleSRV(ctx, email)
 	if err != nil {
 		return nil, err
 	}
-	log.Infos("getStyle", "avatar", avatarHost, "style", styleHost)
+	log.Info().Str("avatar", avatarHost).Str("style", styleHost).Msg("getStyle")
 
 	hash := md5.New()
 	email = strings.TrimSpace(strings.ToLower(email))
