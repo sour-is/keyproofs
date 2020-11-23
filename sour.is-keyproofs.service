@@ -6,7 +6,7 @@ After=syslog.target network.target
 Type=simple
 User=www-data
 WorkingDirectory=/var/www
-ExecStart=/usr/local/bin/keyproofs
+ExecStart=/usr/local/bin/sour.is-keyproofs
 
 Restart=always
 RestartSec=30

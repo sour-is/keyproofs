@@ -1,36 +1,37 @@
-NAME=sour.is-ipseity
+NAME=sour.is-keyproofs
 BUMP?=current
 DATE:=$(shell date -u +%FT%TZ)
 HASH:=$(shell git rev-pars HEAD 2> /dev/null)
 VERSION:=$(shell BUMP=$(BUMP) ./version.sh)
 
 
+build: $(NAME)
+
+clean:
+	rm -f $(NAME)
+
 version:
 	@echo $(VERSION)
-
 tag:
 	git tag -a v$(VERSION) -m "Version: $(VERSION)"
 release:
 	@make tag BUMP=patch
-
 run:
 	go run -v \
            -ldflags "\
               -X main.AppVersion=$(VERSION) \
               -X main.BuildHash=$(HASH) \
-              -X main.BuildDate=$(DATE) \
-			" \
-	   .
+              -X main.BuildDate=$(DATE)" .
 
-build:
+$(NAME):
 	go build -v \
+           -o $(NAME) \
            -ldflags "\
               -X main.AppVersion=$(VERSION) \
               -X main.BuildHash=$(HASH) \
-              -X main.BuildDate=$(DATE) \
-			" \
-	   .
+              -X main.BuildDate=$(DATE)" .
 
-install: build
-	install ./keyproofs /usr/local/bin
-	install ./sour.is-keyproofs.service /lib/systemd/system
+install: $(NAME)
+	install ./$(NAME) /usr/local/bin
+	install ./$(NAME).service /lib/systemd/system
+	systemctl daemon-reload
