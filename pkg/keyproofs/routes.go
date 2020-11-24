@@ -86,6 +86,7 @@ func fmtKey(key promise.Key) string {
 
 func (s *identity) get(w http.ResponseWriter, r *http.Request) {
 	log := zlog.Ctx(r.Context())
+	cfg := config.FromContext(r.Context())
 
 	id := chi.URLParam(r, "id")
 	log.Debug().Str("get ", id).Send()
@@ -172,6 +173,8 @@ func (s *identity) get(w http.ResponseWriter, r *http.Request) {
 	})
 
 	page := page{Style: defaultStyle}
+	page.AppName = fmt.Sprintf("%s v%s", cfg.GetString("app-name"), cfg.GetString("app-version"))
+
 
 	// Wait for either entity to resolve or timeout
 	select {

@@ -1,6 +1,7 @@
 package keyproofs
 
 type page struct {
+	AppName string
 	Entity *Entity
 	Style  *Style
 	Proofs *Proofs
@@ -173,7 +174,7 @@ var pageTPL = `
 		</div>
 
 		<div class="card-footer text-muted text-center">
-			&copy; 2020 Sour.is | <a href="/id/me@sour.is">About me</a> | <a href="https://github.com/sour-is/keyproofs">GitHub</a> | Inspired by <a href="https://keyoxide.org/">keyoxide</a>
+			{{.AppName}} | &copy; 2020 Sour.is | <a href="/id/me@sour.is">About me</a> | <a href="https://github.com/sour-is/keyproofs">GitHub</a> | Inspired by <a href="https://keyoxide.org/">keyoxide</a>
 		</div>
 	</div>
 	</div>
