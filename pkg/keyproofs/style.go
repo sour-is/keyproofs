@@ -25,7 +25,7 @@ type Style struct {
 	Palette []string
 }
 
-func (s *identity) getStyle(ctx context.Context, email string) (*Style, error) {
+func getStyle(ctx context.Context, email string) (*Style, error) {
 	log := log.Ctx(ctx)
 
 	avatarHost, styleHost, err := styleSRV(ctx, email)

@@ -4,18 +4,15 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
-	"net"
+	"html/template"
 	"net/http"
-	"net/mail"
 	"strconv"
-	"strings"
-	"text/template"
 	"time"
 
 	"github.com/go-chi/chi"
 	zlog "github.com/rs/zerolog/log"
+	"github.com/russross/blackfriday"
 	"github.com/skip2/go-qrcode"
-	"gosrc.io/xmpp"
 
 	"github.com/sour-is/keyproofs/pkg/cache"
 	"github.com/sour-is/keyproofs/pkg/config"
@@ -23,32 +20,7 @@ import (
 )
 
 var expireAfter = 20 * time.Minute
-
-func New(ctx context.Context, c cache.Cacher) (*identity, error) {
-	log := zlog.Ctx(ctx)
-
-	var ok bool
-	var xmppConfig *xmpp.Config
-	if xmppConfig, ok = config.FromContext(ctx).Get("xmpp-config").(*xmpp.Config); !ok {
-		log.Error().Msg("no xmpp-config")
-
-		return nil, fmt.Errorf("no xmpp config")
-	}
-
-	conn, err := NewXMPP(ctx, xmppConfig)
-	if err != nil {
-		return nil, err
-	}
-
-	tasker := promise.NewRunner(ctx, promise.Timeout(30*time.Second), promise.WithCache(c, expireAfter))
-	i := &identity{
-		cache:  c,
-		tasker: tasker,
-		conn:   conn,
-	}
-
-	return i, nil
-}
+var runnerTimeout = 30 * time.Second
 
 // 1x1 gif pixel
 var pixl = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="
@@ -61,30 +33,32 @@ var defaultStyle = &Style{
 	Palette:    getPalette("#93CCEA"),
 }
 
-type identity struct {
+type keyproofApp struct {
 	cache  cache.Cacher
 	tasker promise.Tasker
-	conn   *connection
 }
 
-func (s *identity) Routes(r *chi.Mux) {
-	r.Use(secHeaders)
-	r.MethodFunc("GET", "/id/{id}", s.get)
-	r.MethodFunc("GET", "/dns/{domain}", s.getDNS)
-	r.MethodFunc("GET", "/vcard/{jid}", s.getVCard)
-	r.MethodFunc("GET", "/qr", s.getQR)
+func NewKeyProofApp(ctx context.Context, c cache.Cacher) *keyproofApp {
+	return &keyproofApp{
+		cache: c,
+		tasker: promise.NewRunner(
+			ctx,
+			promise.Timeout(runnerTimeout),
+			promise.WithCache(c, expireAfter),
+		),
+	}
+}
+func (app *keyproofApp) Routes(r *chi.Mux) {
+	r.MethodFunc("GET", "/", app.getHome)
+	r.MethodFunc("GET", "/id/{id}", app.getProofs)
+	r.MethodFunc("GET", "/qr", app.getQR)
 	r.MethodFunc("GET", "/favicon.ico", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "image/png")
 		w.WriteHeader(200)
 		_, _ = w.Write(keypng)
 	})
 }
-
-func fmtKey(key promise.Key) string {
-	return fmt.Sprintf("%T", key.Key())
-}
-
-func (s *identity) get(w http.ResponseWriter, r *http.Request) {
+func (app *keyproofApp) getProofs(w http.ResponseWriter, r *http.Request) {
 	log := zlog.Ctx(r.Context())
 	cfg := config.FromContext(r.Context())
 
@@ -96,7 +70,7 @@ func (s *identity) get(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	// Run tasks to resolve entity, style, and proofs.
-	task := s.tasker.Run(EntityKey(id), func(q promise.Q) {
+	task := app.tasker.Run(EntityKey(id), func(q promise.Q) {
 		ctx := q.Context()
 		log := zlog.Ctx(ctx).With().Interface(fmtKey(q), q.Key()).Logger()
 
@@ -128,7 +102,7 @@ func (s *identity) get(w http.ResponseWriter, r *http.Request) {
 			key := q.Key().(StyleKey)
 
 			log.Debug().Msg("start task")
-			style, err := s.getStyle(ctx, string(key))
+			style, err := getStyle(ctx, string(key))
 			if err != nil {
 				q.Reject(err)
 				return
@@ -137,7 +111,6 @@ func (s *identity) get(w http.ResponseWriter, r *http.Request) {
 			log.Debug().Msg("Resolving Style")
 			q.Resolve(style)
 		})
-
 	})
 
 	task.After(func(q promise.ResultQ) {
@@ -175,7 +148,6 @@ func (s *identity) get(w http.ResponseWriter, r *http.Request) {
 	page := page{Style: defaultStyle}
 	page.AppName = fmt.Sprintf("%s v%s", cfg.GetString("app-name"), cfg.GetString("app-version"))
 
-
 	// Wait for either entity to resolve or timeout
 	select {
 	case <-task.Await():
@@ -189,7 +161,7 @@ func (s *identity) get(w http.ResponseWriter, r *http.Request) {
 
 	case <-ctx.Done():
 		log.Print("Deadline Timeout")
-		if e, ok := s.cache.Get(EntityKey(id)); ok {
+		if e, ok := app.cache.Get(EntityKey(id)); ok {
 			page.Entity = e.Value().(*Entity)
 		}
 	}
@@ -198,7 +170,7 @@ func (s *identity) get(w http.ResponseWriter, r *http.Request) {
 	if page.Entity != nil {
 		var gotStyle, gotProofs bool
 
-		if s, ok := s.cache.Get(StyleKey(page.Entity.Primary.Address)); ok {
+		if s, ok := app.cache.Get(StyleKey(page.Entity.Primary.Address)); ok {
 			page.Style = s.Value().(*Style)
 			gotStyle = true
 		}
@@ -210,7 +182,7 @@ func (s *identity) get(w http.ResponseWriter, r *http.Request) {
 			for i := range page.Entity.Proofs {
 				p := page.Entity.Proofs[i]
 
-				if s, ok := s.cache.Get(ProofKey(p)); ok {
+				if s, ok := app.cache.Get(ProofKey(p)); ok {
 					log.Debug().Str("uri", p).Msg("Proof from cache")
 					proofs[p] = s.Value().(*Proof)
 				} else {
@@ -226,31 +198,62 @@ func (s *identity) get(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Template and display.
-	t, err := template.New("identity").Parse(pageTPL)
+	var err error
+	t := template.New("page")
+	t, err = t.Parse(pageTPL)
 	if err != nil {
-		WriteText(w, 500, err.Error())
+		writeText(w, 500, err.Error())
 		return
 	}
+
+	t, err = t.Parse(proofTPL)
+	if err != nil {
+		writeText(w, 500, err.Error())
+		return
+	}
+
 	err = t.Execute(w, page)
 	if err != nil {
-		WriteText(w, 500, err.Error())
+		writeText(w, 500, err.Error())
 		return
 	}
 }
+func (app *keyproofApp) getHome(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	cfg := config.FromContext(ctx)
 
-func (s *identity) getDNS(w http.ResponseWriter, r *http.Request) {
-	domain := chi.URLParam(r, "domain")
+	baseURL := cfg.GetString("base-url")
+	if id := r.URL.Query().Get("id"); id != "" {
+		http.Redirect(w, r, fmt.Sprintf("%s/id/%s", baseURL, id), http.StatusFound)
+		return
+	}
 
-	res, err := net.DefaultResolver.LookupTXT(r.Context(), domain)
+	page := page{Style: defaultStyle, IsComplete: true, Markdown: homeMKDN}
+	page.AppName = fmt.Sprintf("%s v%s", cfg.GetString("app-name"), cfg.GetString("app-version"))
+
+	// Template and display.
+	var err error
+	t := template.New("page")
+	t = t.Funcs(template.FuncMap{"markDown": markDowner})
+	t, err = t.Parse(pageTPL)
 	if err != nil {
-		WriteText(w, 400, err.Error())
+		writeText(w, 500, err.Error())
 		return
 	}
 
-	WriteText(w, 200, strings.Join(res, "\n"))
-}
+	t, err = t.Parse(homeTPL)
+	if err != nil {
+		writeText(w, 500, err.Error())
+		return
+	}
 
-func (s *identity) getQR(w http.ResponseWriter, r *http.Request) {
+	err = t.Execute(w, page)
+	if err != nil {
+		writeText(w, 500, err.Error())
+		return
+	}
+}
+func (app *keyproofApp) getQR(w http.ResponseWriter, r *http.Request) {
 	log := zlog.Ctx(r.Context())
 
 	content := r.URL.Query().Get("c")
@@ -280,7 +283,7 @@ func (s *identity) getQR(w http.ResponseWriter, r *http.Request) {
 
 	png, err := qrcode.Encode(content, quality, size)
 	if err != nil {
-		WriteText(w, 400, err.Error())
+		writeText(w, 400, err.Error())
 		return
 	}
 
@@ -290,38 +293,18 @@ func (s *identity) getQR(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(png)
 }
 
-func (s *identity) getVCard(w http.ResponseWriter, r *http.Request) {
-	jid := chi.URLParam(r, "jid")
-	if _, err := mail.ParseAddress(jid); err != nil {
-		fmt.Fprint(w, err)
-		w.WriteHeader(400)
-	}
-
-	vcard, err := s.conn.GetXMPPVCard(r.Context(), jid)
-	if err != nil {
-		fmt.Fprint(w, err)
-		w.WriteHeader(500)
-	}
-
-	w.Header().Set("Content-Type", "text/xml")
-	w.WriteHeader(200)
-	fmt.Fprint(w, vcard)
-}
-
-func secHeaders(h http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("X-XSS-Protection", "1; mode=block")
-		w.Header().Set("X-Frame-Options", "DENY")
-		w.Header().Set("X-Content-Type-Options", "nosniff")
-		w.Header().Set("X-Content-Type-Options", "nosniff")
-
-		h.ServeHTTP(w, r)
-	})
+func markDowner(args ...interface{}) template.HTML {
+	s := blackfriday.MarkdownCommon([]byte(fmt.Sprintf("%s", args...)))
+	return template.HTML(s)
 }
 
 // WriteText writes plain text
-func WriteText(w http.ResponseWriter, code int, o string) {
+func writeText(w http.ResponseWriter, code int, o string) {
 	w.Header().Set("Content-Type", "text/plain")
 	w.WriteHeader(code)
 	_, _ = w.Write([]byte(o))
+}
+
+func fmtKey(key promise.Key) string {
+	return fmt.Sprintf("%T", key.Key())
 }

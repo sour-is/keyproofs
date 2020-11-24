@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/rs/zerolog/log"
+	"github.com/sour-is/keyproofs/pkg/graceful"
 	"gosrc.io/xmpp"
 	"gosrc.io/xmpp/stanza"
 )
@@ -40,28 +41,34 @@ func init() {
 }
 
 type connection struct {
-	client *xmpp.Client
+	client xmpp.StreamClient
 }
 
 func NewXMPP(ctx context.Context, config *xmpp.Config) (*connection, error) {
 	log := log.Ctx(ctx)
+	wg := graceful.WaitGroup(ctx)
+
 	router := xmpp.NewRouter()
 	conn := &connection{}
 
-	var err error
-	conn.client, err = xmpp.NewClient(config, router, func(err error) { log.Error().Err(err).Send() })
+	cl, err := xmpp.NewClient(config, router, func(err error) { log.Error().Err(err).Send() })
 	if err != nil {
 		return nil, err
 	}
+	sc := xmpp.NewStreamManager(cl, func(c xmpp.Sender) { log.Info().Msg("XMPP Client connected.") })
+
+	wg.Go(func() error {
+		log.Debug().Msg("starting XMPP")
+		return sc.Run()
+	})
 
 	go func() {
 		<-ctx.Done()
-		err := conn.client.Disconnect()
-		log.Error().Err(err).Send()
+		sc.Stop()
+		log.Info().Msg("XMPP Client shutdown.")
 	}()
 
-	err = conn.client.Connect()
-
+	conn.client = cl
 	return conn, err
 }
 

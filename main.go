@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"os/signal"
 	"strings"
 	"time"
 
@@ -21,6 +20,7 @@ import (
 
 	"github.com/sour-is/keyproofs/pkg/cache"
 	"github.com/sour-is/keyproofs/pkg/config"
+	"github.com/sour-is/keyproofs/pkg/graceful"
 	"github.com/sour-is/keyproofs/pkg/keyproofs"
 )
 
@@ -36,11 +36,16 @@ var (
 )
 
 func main() {
-	log := zerolog.New(zerolog.NewConsoleWriter()).With().Timestamp().Caller().Logger()
+	log := zerolog.New(zerolog.NewConsoleWriter()).
+		With().
+		Timestamp().
+		Caller().
+		Logger()
 
 	ctx := context.Background()
 	ctx = log.WithContext(ctx)
-	ctx = WithInterupt(ctx)
+	ctx = graceful.WithInterupt(ctx)
+	ctx, _ = graceful.WithWaitGroup(ctx)
 
 	cfg := config.New()
 	cfg.Set("app-name", "KeyProofs")
@@ -50,13 +55,14 @@ func main() {
 	ctx = cfg.Apply(ctx)
 
 	if err := run(ctx); err != nil {
-		log.Fatal().Stack().Err(err).Send()
+		log.Error().Stack().Err(err).Msg("Application Failed")
 		os.Exit(1)
 	}
 }
 
 func run(ctx context.Context) error {
 	log := log.Ctx(ctx)
+	wg := graceful.WaitGroup(ctx)
 
 	// derive baseURL from listener options
 	listen := env("HTTP_LISTEN", ":9061")
@@ -65,10 +71,6 @@ func run(ctx context.Context) error {
 		host += listen
 	}
 	baseURL := fmt.Sprintf("http://%s", host)
-
-	// Create cache for promise engine
-	arc, _ := lru.NewARC(4096)
-	c := cache.New(arc)
 
 	// Set config values
 	cfg := config.FromContext(ctx)
@@ -94,6 +96,7 @@ func run(ctx context.Context) error {
 	mux := chi.NewRouter()
 	mux.Use(
 		cfg.ApplyHTTP,
+		secHeaders,
 		corsMiddleware,
 		middleware.RequestID,
 		middleware.RealIP,
@@ -101,12 +104,20 @@ func run(ctx context.Context) error {
 		middleware.Recoverer,
 	)
 
-	app, err := keyproofs.New(ctx, c)
+	// Create cache for promise engine
+	arc, _ := lru.NewARC(4096)
+	c := cache.New(arc)
+
+	keyproofApp := keyproofs.NewKeyProofApp(ctx, c)
+	dnsApp := keyproofs.NewDNSApp(ctx)
+	vcardApp, err := keyproofs.NewVCardApp(ctx)
 	if err != nil {
 		return err
 	}
 
-	app.Routes(mux)
+	keyproofApp.Routes(mux)
+	dnsApp.Routes(mux)
+	vcardApp.Routes(mux)
 
 	log.Info().
 		Str("app", cfg.GetString("app-name")).
@@ -122,13 +133,11 @@ func run(ctx context.Context) error {
 		ReadTimeout:  15 * time.Second,
 		Handler:      mux,
 	}).Run(ctx)
-
 	if err != nil {
 		return err
 	}
 
-	log.Info().Msg("shutdown")
-	return nil
+	return wg.Wait(5 * time.Second)
 }
 
 type Server struct {
@@ -140,23 +149,30 @@ func New(s *http.Server) *Server {
 }
 func (s *Server) Run(ctx context.Context) error {
 	log := log.Ctx(ctx)
+	wg := graceful.WaitGroup(ctx)
 
-	go func() {
+	wg.Go(func() error {
 		<-ctx.Done()
 		log.Info().Msg("Shutdown HTTP")
 
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		ctx := context.Background()
+		ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		defer cancel()
 		err := s.srv.Shutdown(ctx)
-		if err != nil {
-			log.Fatal().Err(err)
-			return
+		if err != nil && err != http.ErrServerClosed {
+			return err
 		}
 
 		log.Info().Msg("Stopped  HTTP")
-	}()
+		return nil
+	})
 
-	return s.srv.ListenAndServe()
+	err := s.srv.ListenAndServe()
+	if err != nil && err != http.ErrServerClosed {
+		return err
+	}
+
+	return nil
 }
 
 func env(name, defaultValue string) string {
@@ -167,30 +183,16 @@ func env(name, defaultValue string) string {
 	return defaultValue
 }
 
-func WithInterupt(ctx context.Context) context.Context {
-	log := log.Ctx(ctx)
-	ctx, cancel := context.WithCancel(ctx)
+func secHeaders(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-XSS-Protection", "1; mode=block")
+		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("Content-Security-Policy", "font-src https://pagecdn.io")
 
-	// Listen for Interrupt signals
-	c := make(chan os.Signal, 1)
-	signal.Notify(c, os.Interrupt)
-	defer signal.Stop(c)
-
-	go func() {
-		select {
-		case <-c:
-			cancel()
-			log.Warn().Msg("Shutting down! interrupt received")
-			return
-		case <-ctx.Done():
-			cancel()
-
-			log.Warn().Msg("Shutting down! context cancelled")
-			return
-		}
-	}()
-
-	return ctx
+		h.ServeHTTP(w, r)
+	})
 }
 
 type accessLog func() *zerolog.Event
