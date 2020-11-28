@@ -1,10 +1,11 @@
 package keyproofs
 
 type page struct {
-	AppName string
-	Entity  *Entity
-	Style   *Style
-	Proofs  *Proofs
+	AppName  string
+	AppBuild string
+	Entity   *Entity
+	Style    *Style
+	Proofs   *Proofs
 
 	Markdown   string
 	HasProofs  bool
@@ -81,7 +82,7 @@ var pageTPL = `
 			{{template "content" .}}
 
 			<div class="card-footer text-muted text-center">
-				<a href="/">{{.AppName}}</a>
+				<a href="/" alt="{{.AppBuild}}">{{.AppName}}</a>
 				| &copy; 2020 Sour.is
 				| <a href="/id/me@sour.is">About me</a>
 				| <a href="https://github.com/sour-is/keyproofs">GitHub</a>

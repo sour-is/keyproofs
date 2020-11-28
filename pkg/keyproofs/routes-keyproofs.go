@@ -147,6 +147,7 @@ func (app *keyproofApp) getProofs(w http.ResponseWriter, r *http.Request) {
 
 	page := page{Style: defaultStyle}
 	page.AppName = fmt.Sprintf("%s v%s", cfg.GetString("app-name"), cfg.GetString("app-version"))
+	page.AppBuild = fmt.Sprintf("%s %s", cfg.GetString("build-date"), cfg.GetString("build-hash"))
 
 	// Wait for either entity to resolve or timeout
 	select {

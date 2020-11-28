@@ -1,7 +1,7 @@
 NAME=sour.is-keyproofs
 BUMP?=current
 DATE:=$(shell date -u +%FT%TZ)
-HASH:=$(shell git rev-pars HEAD 2> /dev/null)
+HASH:=$(shell git rev-parse HEAD 2> /dev/null)
 VERSION:=$(shell BUMP=$(BUMP) ./version.sh)
 
 
