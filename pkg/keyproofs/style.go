@@ -37,7 +37,6 @@ func getStyle(ctx context.Context, email string) (*Style, error) {
 	hash := md5.New()
 	email = strings.TrimSpace(strings.ToLower(email))
 	_, _ = hash.Write([]byte(email))
-
 	id := hash.Sum(nil)
 
 	style := &Style{}

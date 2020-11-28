@@ -86,38 +86,48 @@ func run(ctx context.Context) error {
 		Credential: xmpp.Password(os.Getenv("XMPP_PASSWORD")),
 	})
 
-	// configure cors middleware
-	corsMiddleware := cors.New(cors.Options{
-		AllowCredentials: true,
-		AllowedMethods:   strings.Fields(env("CORS_METHODS", "GET")),
-		AllowedOrigins:   strings.Fields(env("CORS_ORIGIN", "*")),
-	}).Handler
-
 	mux := chi.NewRouter()
 	mux.Use(
 		cfg.ApplyHTTP,
 		secHeaders,
-		corsMiddleware,
+		cors.New(cors.Options{
+			AllowCredentials: true,
+			AllowedMethods:   strings.Fields(env("CORS_METHODS", "GET")),
+			AllowedOrigins:   strings.Fields(env("CORS_ORIGIN", "*")),
+		}).Handler,
 		middleware.RequestID,
 		middleware.RealIP,
 		middleware.RequestLogger(&middleware.DefaultLogFormatter{Logger: accessLog(log.Info)}),
 		middleware.Recoverer,
 	)
 
-	// Create cache for promise engine
-	arc, _ := lru.NewARC(4096)
-	c := cache.New(arc)
-
-	keyproofApp := keyproofs.NewKeyProofApp(ctx, c)
-	dnsApp := keyproofs.NewDNSApp(ctx)
-	vcardApp, err := keyproofs.NewVCardApp(ctx)
-	if err != nil {
-		return err
+	if env("DISABLE_KEYPROOF", "false") == "false" {
+		// Create cache for promise engine
+		arc, _ := lru.NewARC(4096)
+		c := cache.New(arc)
+		keyproofs.NewKeyProofApp(ctx, c).Routes(mux)
 	}
 
-	keyproofApp.Routes(mux)
-	dnsApp.Routes(mux)
-	vcardApp.Routes(mux)
+	if env("DISABLE_DNS", "false") == "false" {
+		keyproofs.NewDNSApp(ctx).Routes(mux)
+	}
+
+	if env("DISABLE_AVATAR", "false") == "false" {
+		avatarApp, err := keyproofs.NewAvatarApp(ctx, env("AVATAR_PATH", "pub"))
+		if err != nil {
+			return err
+		}
+
+		avatarApp.Routes(mux)
+	}
+
+	if env("DISABLE_VCARD", "false") == "false" {
+		vcardApp, err := keyproofs.NewVCardApp(ctx)
+		if err != nil {
+			return err
+		}
+		vcardApp.Routes(mux)
+	}
 
 	log.Info().
 		Str("app", cfg.GetString("app-name")).
@@ -127,7 +137,7 @@ func run(ctx context.Context) error {
 		Str("listen", listen).
 		Msg("startup")
 
-	err = New(&http.Server{
+	err := New(&http.Server{
 		Addr:         listen,
 		WriteTimeout: 15 * time.Second,
 		ReadTimeout:  15 * time.Second,

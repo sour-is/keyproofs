@@ -50,6 +50,7 @@ var pageTPL = `
 		.shade { background-color: {{index .Palette 3}}80; border-radius: .25rem;}
 		.lead { padding:0; margin:0;  }
 		.scroll { height: 20em; overflow: scroll; }
+
 		@media only screen and (max-width: 991px) {
 			.jumbotron h1 { font-size: 2rem; }
 			.jumbotron .lead { font-size: 1.0rem; }

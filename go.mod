@@ -3,6 +3,7 @@ module github.com/sour-is/keyproofs
 go 1.15
 
 require (
+	github.com/fsnotify/fsnotify v1.4.7
 	github.com/go-chi/chi v4.1.2+incompatible
 	github.com/google/go-cmp v0.5.4 // indirect
 	github.com/hashicorp/golang-lru v0.5.4
