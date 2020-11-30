@@ -89,6 +89,12 @@ func run(ctx context.Context) error {
 	mux := chi.NewRouter()
 	mux.Use(
 		cfg.ApplyHTTP,
+		func(next http.Handler) http.Handler {
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				r = r.WithContext(log.WithContext(r.Context()))
+				next.ServeHTTP(w, r)
+			})
+		},
 		secHeaders,
 		cors.New(cors.Options{
 			AllowCredentials: true,

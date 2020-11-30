@@ -3,12 +3,14 @@ module github.com/sour-is/keyproofs
 go 1.15
 
 require (
+	github.com/disintegration/imaging v1.6.2
 	github.com/fsnotify/fsnotify v1.4.7
 	github.com/go-chi/chi v4.1.2+incompatible
 	github.com/google/go-cmp v0.5.4 // indirect
 	github.com/hashicorp/golang-lru v0.5.4
 	github.com/joho/godotenv v1.3.0
 	github.com/lucasb-eyer/go-colorful v1.0.3
+	github.com/nullrocks/identicon v0.0.0-20180626043057-7875f45b0022
 	github.com/rs/cors v1.7.0
 	github.com/rs/zerolog v1.20.0
 	github.com/russross/blackfriday v1.5.2

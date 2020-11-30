@@ -22,8 +22,13 @@ func getOpenPGPkey(ctx context.Context, id string) (entity *Entity, err error) {
 		addr := "https://keys.openpgp.org/vks/v1/by-fingerprint/" + strings.ToUpper(id)
 		return getEntityHTTP(ctx, addr, true)
 	} else if email, err := mail.ParseAddress(id); err == nil {
-		addr := getWKDPubKeyAddr(email)
+		addr, advAddr := getWKDPubKeyAddr(email)
 		req, err := getEntityHTTP(ctx, addr, false)
+		if err == nil {
+			return req, err
+		}
+
+		req, err = getEntityHTTP(ctx, advAddr, false)
 		if err == nil {
 			return req, err
 		}
@@ -44,15 +49,14 @@ func getEntityHTTP(ctx context.Context, url string, useArmored bool) (entity *En
 	}
 	cl := http.Client{}
 	resp, err := cl.Do(req)
+	if err != nil {
+		return entity, fmt.Errorf("Requesting key: %w\nRemote URL: %v", err, url)
+	}
 	log.Debug().
 		Bool("useArmored", useArmored).
 		Str("status", resp.Status).
 		Str("url", url).
 		Msg("getEntityHTTP")
-
-	if err != nil {
-		return entity, fmt.Errorf("Requesting key: %w\nRemote URL: %v", err, url)
-	}
 
 	if resp.StatusCode != 200 {
 		return entity, fmt.Errorf("bad response from remote: %s\nRemote URL: %v", resp.Status, url)
@@ -194,11 +198,11 @@ func isFingerprint(s string) bool {
 	return true
 }
 
-func getWKDPubKeyAddr(email *mail.Address) string {
+func getWKDPubKeyAddr(email *mail.Address) (string, string) {
 	parts := strings.SplitN(email.Address, "@", 2)
-
 	hash := sha1.Sum([]byte(parts[0]))
 	lp := zbase32.EncodeToString(hash[:])
 
-	return fmt.Sprintf("https://%s/.well-known/openpgpkey/hu/%s", parts[1], lp)
+	return fmt.Sprintf("https://%s/.well-known/openpgpkey/hu/%s", parts[1], lp),
+		fmt.Sprintf("https://openpgpkey.%s/.well-known/openpgpkey/hu/%s/%s", parts[1], parts[1], lp)
 }
