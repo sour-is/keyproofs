@@ -135,6 +135,8 @@ func run(ctx context.Context) error {
 		Str("build-hash", cfg.GetString("build-hash")).
 		Str("build-date", cfg.GetString("build-date")).
 		Str("listen", listen).
+                Int("user", os.Geteuid()).
+                Int("group", os.Getgid()).
 		Msg("startup")
 
 	err := New(&http.Server{

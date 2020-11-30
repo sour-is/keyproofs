@@ -28,7 +28,7 @@ func NewAvatarApp(ctx context.Context, path string) (*avatarApp, error) {
 	app := &avatarApp{path: path}
 	err := app.CheckFiles(ctx)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("check files: %w", err)
 	}
 
 	watch, err := fsnotify.NewWatcher()
@@ -38,7 +38,7 @@ func NewAvatarApp(ctx context.Context, path string) (*avatarApp, error) {
 	for _, typ := range []string{"avatar", "bg", "cover"} {
 		err = watch.Add(filepath.Join(path, typ))
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("adding watch: %w", err)
 		}
 	}
 
@@ -91,7 +91,7 @@ func (app *avatarApp) CheckFiles(ctx context.Context) error {
 
 	return filepath.Walk(app.path, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
-			return err
+			return fmt.Errorf("walk failed: %w", err)
 		}
 		if info.IsDir() {
 			if info.Name() == ".links" {
