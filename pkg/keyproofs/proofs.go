@@ -2,6 +2,7 @@ package keyproofs
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -205,6 +206,17 @@ func NewProof(ctx context.Context, uri, fingerprint string) ProofResolver {
 				return &httpResolve{p, url, nil}
 			}
 
+		case strings.Contains(p.URI.Path, "/conv/"):
+			if sp := strings.SplitN(p.URI.Path, "/", 3); len(sp) == 3 {
+				p.Icon = "fas fa-comment-alt"
+				p.Service = "Twtxt"
+				p.Name = "loading..."
+				p.Link = fmt.Sprintf("https://%s", p.URI.Host)
+
+				url := fmt.Sprintf("https://%s/api/v1/conv", p.URI.Host)
+				return &twtxtResolve{p, url, sp[2], nil}
+			}
+
 		default:
 			if sp := strings.SplitN(p.URI.Path, "/", 3); len(sp) > 1 {
 				p.Icon = "fas fa-project-diagram"
@@ -294,8 +306,8 @@ func (r *gitlabResolve) Resolve(ctx context.Context) error {
 
 	return ErrNoFingerprint
 }
-func (p *gitlabResolve) Proof() *Proof {
-	return &p.proof
+func (r *gitlabResolve) Proof() *Proof {
+	return &r.proof
 }
 
 func (p *Proof) Resolve(ctx context.Context) error {
@@ -303,6 +315,43 @@ func (p *Proof) Resolve(ctx context.Context) error {
 }
 func (p *Proof) Proof() *Proof {
 	return p
+}
+
+type twtxtResolve struct {
+	proof   Proof             `json:"-"`
+	url     string            `json:"-"`
+	Hash    string            `json:"hash"`
+	headers map[string]string `json:"-"`
+}
+
+func (t *twtxtResolve) Resolve(ctx context.Context) error {
+	t.proof.Status = ProofInvalid
+
+	twt := struct {
+		Twts []struct {
+			Text  string `json:"text"`
+			Twter struct{ Nick string }
+		} `json:"twts"`
+	}{}
+
+	if err := postJSON(ctx, t.url, nil, t, &twt); err != nil {
+		return err
+	}
+	if len(twt.Twts) > 0 {
+		t.proof.Name = twt.Twts[0].Twter.Nick
+		t.proof.Link += "/user/" + twt.Twts[0].Twter.Nick
+
+		ck := fmt.Sprintf("[Verifying my OpenPGP key: openpgp4fpr:%s]", strings.ToLower(t.proof.Fingerprint))
+		if strings.Contains(twt.Twts[0].Text, ck) {
+			t.proof.Status = ProofVerified
+			return nil
+		}
+	}
+
+	return ErrNoFingerprint
+}
+func (t *twtxtResolve) Proof() *Proof {
+	return &t.proof
 }
 
 func checkHTTP(ctx context.Context, uri, fingerprint string, hdr map[string]string) error {
@@ -356,6 +405,39 @@ func httpJSON(ctx context.Context, uri string, hdr map[string]string, dst interf
 		log.Err(err)
 		return err
 	}
+	req.Header.Set("Accept", "application/json")
+	for k, v := range hdr {
+		req.Header.Set(k, v)
+	}
+
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		log.Err(err)
+		return err
+	}
+	defer res.Body.Close()
+
+	return json.NewDecoder(res.Body).Decode(dst)
+}
+
+func postJSON(ctx context.Context, uri string, hdr map[string]string, payload, dst interface{}) error {
+	log := log.Ctx(ctx)
+
+	log.Info().Str("URI", uri).Msg("postJSON")
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		log.Err(err).Send()
+		return err
+	}
+	buf := bytes.NewBuffer(body)
+
+	req, err := http.NewRequestWithContext(ctx, "POST", uri, buf)
+	if err != nil {
+		log.Err(err).Send()
+		return err
+	}
+
 	req.Header.Set("Accept", "application/json")
 	for k, v := range hdr {
 		req.Header.Set(k, v)
