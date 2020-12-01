@@ -206,7 +206,7 @@ func NewProof(ctx context.Context, uri, fingerprint string) ProofResolver {
 				return &httpResolve{p, url, nil}
 			}
 
-		case strings.Contains(p.URI.Path, "/conv/"):
+		case strings.Contains(p.URI.Path, "/conv/"), strings.Contains(p.URI.Path, "/twt/"):
 			if sp := strings.SplitN(p.URI.Path, "/", 3); len(sp) == 3 {
 				p.Icon = "fas fa-comment-alt"
 				p.Service = "Twtxt"
