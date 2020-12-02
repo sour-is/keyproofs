@@ -14,7 +14,7 @@ version:
 	@echo $(VERSION)
 tag:
 	git tag -a v$(VERSION) -m "Version: $(VERSION)"
-	git push --tag
+	git push --follow-tags
 release:
 	@make tag BUMP=patch
 run:

@@ -146,8 +146,10 @@ func ReadKey(r io.Reader, useArmored bool) (e *Entity, err error) {
 	var buf bytes.Buffer
 
 	var w io.Writer = &buf
-
 	e = &Entity{}
+
+	defer func(){ if e != nil { e.ArmorText = buf.String() }}()
+
 
 	if !useArmored {
 		var aw io.WriteCloser
@@ -155,15 +157,10 @@ func ReadKey(r io.Reader, useArmored bool) (e *Entity, err error) {
 		if err != nil {
 			return e, fmt.Errorf("Read key: %w", err)
 		}
-		defer aw.Close()
+                defer aw.Close()
 
 		w = aw
 	}
-	defer func() {
-		if e != nil {
-			e.ArmorText = buf.String()
-		}
-	}()
 
 	r = io.TeeReader(r, w)
 

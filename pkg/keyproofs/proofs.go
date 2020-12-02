@@ -210,7 +210,7 @@ func NewProof(ctx context.Context, uri, fingerprint string) ProofResolver {
 			if sp := strings.SplitN(p.URI.Path, "/", 3); len(sp) == 3 {
 				p.Icon = "fas fa-comment-alt"
 				p.Service = "Twtxt"
-				p.Name = "loading..."
+				p.Name = fmt.Sprintf("...@%s", p.URI.Host)
 				p.Link = fmt.Sprintf("https://%s", p.URI.Host)
 
 				url := fmt.Sprintf("https://%s/api/v1/conv", p.URI.Host)
@@ -338,10 +338,11 @@ func (t *twtxtResolve) Resolve(ctx context.Context) error {
 		return err
 	}
 	if len(twt.Twts) > 0 {
-		t.proof.Name = twt.Twts[0].Twter.Nick
-		t.proof.Link += "/user/" + twt.Twts[0].Twter.Nick
+                nick := twt.Twts[0].Twter.Nick
+		t.proof.Name = fmt.Sprintf("%s@%s", nick, t.proof.URI.Host)
+		t.proof.Link += "/user/" + nick
 
-		ck := fmt.Sprintf("[Verifying my OpenPGP key: openpgp4fpr:%s]", strings.ToLower(t.proof.Fingerprint))
+		ck := fmt.Sprintf("[Verifying my OpenPGP key: openpgp4fpr:%s]", t.proof.Fingerprint)
 		if strings.Contains(twt.Twts[0].Text, ck) {
 			t.proof.Status = ProofVerified
 			return nil
