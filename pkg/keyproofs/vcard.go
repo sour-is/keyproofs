@@ -76,10 +76,6 @@ func NewXMPP(ctx context.Context, config *xmpp.Config) (*connection, error) {
 func (conn *connection) GetXMPPVCard(ctx context.Context, jid string) (vc *VCard, err error) {
 	log := log.Ctx(ctx)
 
-	if err := conn.client.Resume(); err != nil {
-		return nil, err
-	}
-
 	var iq *stanza.IQ
 	iq, err = stanza.NewIQ(stanza.Attrs{To: jid, Type: "get"})
 	if err != nil {
