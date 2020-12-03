@@ -254,9 +254,10 @@ func (app *wkdApp) replaceLink(src, link string) error {
 }
 
 func getWKDDomain(ctx context.Context, domain string) (string, bool) {
-	cname, err := net.DefaultResolver.LookupCNAME(ctx, "openpgpkey."+domain)
+	adv := "openpgpkey." + domain
+	_, err := net.DefaultResolver.LookupCNAME(ctx, adv)
 	if err == nil {
-		return strings.Trim(cname, "."), true
+		return adv, true
 	}
 	return domain, false
 }
