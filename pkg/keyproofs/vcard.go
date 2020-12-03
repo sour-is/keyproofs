@@ -55,6 +55,8 @@ func NewXMPP(ctx context.Context, config *xmpp.Config) (*connection, error) {
 	if err != nil {
 		return nil, err
 	}
+	conn.client = cl
+
 	sc := xmpp.NewStreamManager(cl, func(c xmpp.Sender) { log.Info().Msg("XMPP Client connected.") })
 
 	wg.Go(func() error {
@@ -68,12 +70,15 @@ func NewXMPP(ctx context.Context, config *xmpp.Config) (*connection, error) {
 		log.Info().Msg("XMPP Client shutdown.")
 	}()
 
-	conn.client = cl
 	return conn, err
 }
 
 func (conn *connection) GetXMPPVCard(ctx context.Context, jid string) (vc *VCard, err error) {
 	log := log.Ctx(ctx)
+
+	if err := conn.client.Resume(); err != nil {
+		return nil, err
+	}
 
 	var iq *stanza.IQ
 	iq, err = stanza.NewIQ(stanza.Attrs{To: jid, Type: "get"})

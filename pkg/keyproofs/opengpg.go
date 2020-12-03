@@ -13,6 +13,7 @@ import (
 
 	"github.com/rs/zerolog/log"
 	"github.com/sour-is/crypto/openpgp"
+	"github.com/sour-is/crypto/openpgp/packet"
 	"github.com/tv42/zbase32"
 	"golang.org/x/crypto/openpgp/armor"
 )
@@ -78,11 +79,17 @@ func (k EntityKey) Key() interface{} {
 }
 
 type Entity struct {
-	Primary     *mail.Address
-	Emails      []*mail.Address
-	Fingerprint string
-	Proofs      []string
-	ArmorText   string
+	Primary       *mail.Address
+	SelfSignature *packet.Signature
+	Emails        []*mail.Address
+	Fingerprint   string
+	Proofs        []string
+	ArmorText     string
+	entity        *openpgp.Entity
+}
+
+func (e *Entity) Serialize(f io.Writer) error {
+	return e.entity.Serialize(f)
 }
 
 func getEntity(lis openpgp.EntityList) (*Entity, error) {
@@ -97,6 +104,7 @@ func getEntity(lis openpgp.EntityList) (*Entity, error) {
 			continue
 		}
 
+		entity.entity = e
 		entity.Fingerprint = fmt.Sprintf("%X", e.PrimaryKey.Fingerprint)
 
 		for name, ident := range e.Identities {
@@ -126,6 +134,7 @@ func getEntity(lis openpgp.EntityList) (*Entity, error) {
 
 			// If identity is self signed read notation data.
 			if ident.SelfSignature != nil && ident.SelfSignature.NotationData != nil {
+				entity.SelfSignature = ident.SelfSignature
 				// Get proofs and append to list.
 				if proofs, ok := ident.SelfSignature.NotationData["proof@metacode.biz"]; ok {
 					entity.Proofs = append(entity.Proofs, proofs...)
@@ -148,8 +157,11 @@ func ReadKey(r io.Reader, useArmored bool) (e *Entity, err error) {
 	var w io.Writer = &buf
 	e = &Entity{}
 
-	defer func(){ if e != nil { e.ArmorText = buf.String() }}()
-
+	defer func() {
+		if e != nil {
+			e.ArmorText = buf.String()
+		}
+	}()
 
 	if !useArmored {
 		var aw io.WriteCloser
@@ -157,7 +169,7 @@ func ReadKey(r io.Reader, useArmored bool) (e *Entity, err error) {
 		if err != nil {
 			return e, fmt.Errorf("Read key: %w", err)
 		}
-                defer aw.Close()
+		defer aw.Close()
 
 		w = aw
 	}

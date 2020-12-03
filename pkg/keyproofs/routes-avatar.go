@@ -64,7 +64,7 @@ func NewAvatarApp(ctx context.Context, path string) (*avatarApp, error) {
 					kind := filepath.Base(path)
 					name := filepath.Base(op.Name)
 					if err := app.createLinks(kind, name); err != nil {
-						fmt.Println(err)
+						log.Err(err).Send()
 					}
 				case fsnotify.Remove, fsnotify.Rename:
 					path = filepath.Dir(op.Name)
@@ -76,7 +76,7 @@ func NewAvatarApp(ctx context.Context, path string) (*avatarApp, error) {
 				default:
 				}
 			case err := <-watch.Errors:
-				fmt.Println(err)
+				log.Err(err).Send()
 			}
 		}
 	})
@@ -100,10 +100,12 @@ func (app *avatarApp) CheckFiles(ctx context.Context) error {
 			return fmt.Errorf("walk failed: %w", err)
 		}
 		if info.IsDir() {
-			if info.Name() == ".links" {
+			switch info.Name() {
+			case "avatar", "bg", "cover":
+				return nil
+			default:
 				return filepath.SkipDir
 			}
-			return nil
 		}
 
 		path = filepath.Dir(path)

@@ -231,6 +231,7 @@ func NewProof(ctx context.Context, uri, fingerprint string) ProofResolver {
 				return &httpResolve{p, p.Verify, nil}
 			}
 		}
+
 	default:
 		p.Icon = "exclamation-triangle"
 		p.Service = "unknown"
@@ -338,7 +339,7 @@ func (t *twtxtResolve) Resolve(ctx context.Context) error {
 		return err
 	}
 	if len(twt.Twts) > 0 {
-                nick := twt.Twts[0].Twter.Nick
+		nick := twt.Twts[0].Twter.Nick
 		t.proof.Name = fmt.Sprintf("%s@%s", nick, t.proof.URI.Host)
 		t.proof.Link += "/user/" + nick
 

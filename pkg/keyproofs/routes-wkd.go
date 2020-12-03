@@ -2,9 +2,13 @@ package keyproofs
 
 import (
 	"context"
+	"crypto/sha1"
 	"fmt"
 	"io"
+	"io/ioutil"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,7 +16,9 @@ import (
 	"github.com/fsnotify/fsnotify"
 	"github.com/go-chi/chi"
 	"github.com/rs/zerolog/log"
+	"github.com/sour-is/crypto/openpgp"
 	"github.com/sour-is/keyproofs/pkg/graceful"
+	"github.com/tv42/zbase32"
 )
 
 type wkdApp struct {
@@ -22,9 +28,10 @@ type wkdApp struct {
 
 func NewWKDApp(ctx context.Context, path, domain string) (*wkdApp, error) {
 	log := log.Ctx(ctx)
+	log.Debug().Str("domain", domain).Str("path", path).Msg("NewWKDApp")
 
 	path = filepath.Clean(path)
-	app := &wkdApp{path: path}
+	app := &wkdApp{path: path, domain: domain}
 	err := app.CheckFiles(ctx)
 	if err != nil {
 		return nil, err
@@ -57,7 +64,7 @@ func NewWKDApp(ctx context.Context, path, domain string) (*wkdApp, error) {
 					kind := filepath.Base(path)
 					name := filepath.Base(op.Name)
 					if err := app.createLinks(kind, name); err != nil {
-						fmt.Println(err)
+						log.Err(err).Send()
 					}
 				case fsnotify.Remove, fsnotify.Rename:
 					path = filepath.Dir(op.Name)
@@ -69,7 +76,7 @@ func NewWKDApp(ctx context.Context, path, domain string) (*wkdApp, error) {
 				default:
 				}
 			case err := <-watch.Errors:
-				fmt.Println(err)
+				log.Err(err).Send()
 			}
 		}
 	})
@@ -80,7 +87,7 @@ func NewWKDApp(ctx context.Context, path, domain string) (*wkdApp, error) {
 func (app *wkdApp) CheckFiles(ctx context.Context) error {
 	log := log.Ctx(ctx)
 
-	for _, name := range []string{".links", "wkd"} {
+	for _, name := range []string{".links", "keys"} {
 		log.Debug().Msgf("mkdir: %s", filepath.Join(app.path, name))
 		err := os.MkdirAll(filepath.Join(app.path, name), 0700)
 		if err != nil {
@@ -92,11 +99,17 @@ func (app *wkdApp) CheckFiles(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		if info.IsDir() {
-			if info.Name() == ".links" {
-				return filepath.SkipDir
-			}
+		log.Debug().Msg(info.Name())
+		if path == app.path {
 			return nil
+		}
+		if info.IsDir() {
+			switch info.Name() {
+			case "keys":
+				return nil
+			}
+			return filepath.SkipDir
+
 		}
 
 		path = filepath.Dir(path)
@@ -109,26 +122,48 @@ func (app *wkdApp) CheckFiles(ctx context.Context) error {
 	})
 }
 
-func (app *wkdApp) get(w http.ResponseWriter, r *http.Request) {
-	log := log.Ctx(r.Context())
+func (app *wkdApp) getRedirect(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	log := log.Ctx(ctx)
 
 	log.Print(r.Host)
 
-	kind := chi.URLParam(r, "kind")
 	hash := chi.URLParam(r, "hash")
 
 	if strings.ContainsRune(hash, '@') {
-		avatarHost, _, err := styleSRV(r.Context(), hash)
-		if err != nil {
-			writeText(w, 500, err.Error())
-			return
+		hash, domain := hashHuman(hash)
+		log.Debug().Str("hash", hash).Str("domain", domain).Msg("redirect")
+		if host, adv := getWKDDomain(ctx, domain); adv {
+			log.Debug().Str("host", host).Str("domain", domain).Bool("adv", adv).Msg("redirect")
+			http.Redirect(w, r, fmt.Sprintf("https://%s/.well-known/openpgpkey/hu/%s/%s", host, domain, hash), http.StatusTemporaryRedirect)
+		} else {
+			log.Debug().Str("host", host).Str("domain", domain).Bool("adv", adv).Msg("redirect")
+			http.Redirect(w, r, fmt.Sprintf("https://%s/.well-known/openpgpkey/hu/%s", domain, hash), http.StatusTemporaryRedirect)
 		}
-		hash = hashSHA256(strings.ToLower(hash))
-		http.Redirect(w, r, fmt.Sprintf("https://%s/%s/%s?%s", avatarHost, kind, hash, r.URL.RawQuery), 301)
+
 		return
 	}
 
-	fname := filepath.Join(app.path, ".links", strings.Join([]string{kind, hash}, "-"))
+	writeText(w, http.StatusBadRequest, "Bad Request")
+}
+
+func (app *wkdApp) get(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	log := log.Ctx(ctx)
+
+	log.Print(r.Host)
+
+	hash := chi.URLParam(r, "hash")
+	domain := chi.URLParam(r, "domain")
+	if domain == "" {
+		domain = app.domain
+	}
+
+	if strings.ContainsRune(hash, '@') {
+		hash, domain = hashHuman(hash)
+	}
+
+	fname := filepath.Join(app.path, ".links", strings.Join([]string{"keys", domain, hash}, "-"))
 	log.Debug().Msgf("path: %s", fname)
 
 	f, err := os.Open(fname)
@@ -145,6 +180,9 @@ func (app *wkdApp) get(w http.ResponseWriter, r *http.Request) {
 }
 
 func (app *wkdApp) Routes(r *chi.Mux) {
+	r.MethodFunc("GET", "/wkd/{hash}", app.getRedirect)
+	r.MethodFunc("GET", "/key/{hash}", app.get)
+	r.MethodFunc("POST", "/pks/add", app.postKey)
 	r.MethodFunc("GET", "/.well-known/openpgpkey/hu/{hash}", app.get)
 	r.MethodFunc("GET", "/.well-known/openpgpkey/hu/{domain}/{hash}", app.get)
 }
@@ -157,14 +195,22 @@ func (app *wkdApp) createLinks(kind, name string) error {
 	src := filepath.Join("..", kind, name)
 	name = strings.ToLower(name)
 
-	hash := hashMD5(name)
-	link := filepath.Join(app.path, ".links", strings.Join([]string{kind, hash}, "-"))
+	hash, domain := hashHuman(name)
+	link := filepath.Join(app.path, ".links", strings.Join([]string{kind, domain, hash}, "-"))
 	err := app.replaceLink(src, link)
 	if err != nil {
 		return err
 	}
 
 	return err
+}
+func hashHuman(name string) (string, string) {
+	name = strings.ToLower(name)
+	parts := strings.SplitN(name, "@", 2)
+	hash := sha1.Sum([]byte(parts[0]))
+	lp := zbase32.EncodeToString(hash[:])
+
+	return lp, parts[1]
 }
 
 func (app *wkdApp) removeLinks(kind, name string) error {
@@ -173,16 +219,12 @@ func (app *wkdApp) removeLinks(kind, name string) error {
 	}
 	name = strings.ToLower(name)
 
-	hash := hashMD5(name)
-	link := filepath.Join(app.path, ".links", strings.Join([]string{kind, hash}, "-"))
+	hash, domain := hashHuman(name)
+	link := filepath.Join(app.path, ".links", strings.Join([]string{kind, domain, hash}, "-"))
 	err := os.Remove(link)
 	if err != nil {
 		return err
 	}
-
-	hash = hashSHA256(name)
-	link = filepath.Join(app.path, ".links", strings.Join([]string{kind, hash}, "-"))
-	err = os.Remove(link)
 
 	return err
 }
@@ -209,4 +251,130 @@ func (app *wkdApp) replaceLink(src, link string) error {
 	}
 
 	return nil
+}
+
+func getWKDDomain(ctx context.Context, domain string) (string, bool) {
+	cname, err := net.DefaultResolver.LookupCNAME(ctx, "openpgpkey."+domain)
+	if err == nil {
+		return strings.Trim(cname, "."), true
+	}
+	return domain, false
+}
+
+func (app *wkdApp) postKey(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	log := log.Ctx(ctx)
+
+	body, err := ioutil.ReadAll(r.Body)
+	r.Body.Close()
+	if err != nil {
+		log.Err(err).Send()
+		writeText(w, http.StatusBadRequest, "ERR BODY")
+
+		return
+	}
+
+	q, err := url.ParseQuery(string(body))
+	if err != nil {
+		log.Err(err).Send()
+		writeText(w, http.StatusBadRequest, "ERR PARSE")
+
+		return
+	}
+
+	lis, err := openpgp.ReadArmoredKeyRing(strings.NewReader(q.Get("keytext")))
+	if err != nil {
+		log.Err(err).Send()
+		writeText(w, http.StatusBadRequest, "ERR READ KEY")
+
+		return
+	}
+
+	entity, err := getEntity(lis)
+	if err != nil {
+		log.Err(err).Send()
+		writeText(w, http.StatusBadRequest, "ERR ENTITY")
+
+		return
+	}
+
+	fname := filepath.Join(app.path, "keys", entity.Primary.Address)
+
+	f, err := os.Open(fname)
+	if os.IsNotExist(err) {
+		out, err := os.Create(fname)
+		if err != nil {
+			log.Err(err).Send()
+			writeText(w, http.StatusInternalServerError, "ERR CREATE")
+
+			return
+		}
+
+		err = entity.Serialize(out)
+		if err != nil {
+			log.Err(err).Send()
+			writeText(w, http.StatusInternalServerError, "ERR WRITE")
+			return
+		}
+
+		w.Header().Set("X-HKP-Status", "Created key")
+		writeText(w, http.StatusOK, "OK CREATED")
+		return
+	}
+
+	current, err := openpgp.ReadKeyRing(f)
+	if err != nil {
+		log.Err(err).Send()
+		writeText(w, http.StatusInternalServerError, "ERR READ")
+
+		return
+	}
+	f.Close()
+
+	compare, err := getEntity(current)
+	if err != nil {
+		log.Err(err).Send()
+		writeText(w, http.StatusInternalServerError, "ERR PARSE")
+
+		return
+	}
+
+	if entity.Fingerprint != compare.Fingerprint {
+		w.Header().Set("X-HKP-Status", "Mismatch fingerprint")
+		writeText(w, http.StatusBadRequest, "ERR FINGERPRINT")
+		return
+	}
+	if entity.SelfSignature == nil || compare.SelfSignature == nil {
+		w.Header().Set("X-HKP-Status", "Missing signature")
+		writeText(w, http.StatusBadRequest, "ERR SIGNATURE")
+		return
+	}
+
+	log.Debug().Msgf("%v < %v", entity.SelfSignature.CreationTime, compare.SelfSignature.CreationTime)
+
+	if !compare.SelfSignature.CreationTime.Before(entity.SelfSignature.CreationTime) {
+		w.Header().Set("X-HKP-Status", "out of date")
+		writeText(w, http.StatusBadRequest, "ERR OUT OF DATE")
+
+		return
+	}
+
+	out, err := os.Create(fname)
+	if err != nil {
+		log.Err(err).Send()
+		writeText(w, http.StatusInternalServerError, "ERR CREATE")
+
+		return
+	}
+
+	err = entity.Serialize(out)
+	if err != nil {
+		log.Err(err).Send()
+		writeText(w, http.StatusInternalServerError, "ERR WRITE")
+
+		return
+	}
+
+	w.Header().Set("X-HKP-Status", "Updated key")
+	writeText(w, http.StatusOK, "OK UPDATED")
 }

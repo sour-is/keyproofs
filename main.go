@@ -127,6 +127,15 @@ func run(ctx context.Context) error {
 		avatarApp.Routes(mux)
 	}
 
+	if env("DISABLE_WKD", "false") == "false" {
+		avatarApp, err := keyproofs.NewWKDApp(ctx, env("WKD_PATH", "pub"), env("WKD_DOMAIN", "pub"))
+		if err != nil {
+			return err
+		}
+
+		avatarApp.Routes(mux)
+	}
+
 	if env("DISABLE_VCARD", "false") == "false" {
 		vcardApp, err := keyproofs.NewVCardApp(ctx)
 		if err != nil {
@@ -141,8 +150,8 @@ func run(ctx context.Context) error {
 		Str("build-hash", cfg.GetString("build-hash")).
 		Str("build-date", cfg.GetString("build-date")).
 		Str("listen", listen).
-                Int("user", os.Geteuid()).
-                Int("group", os.Getgid()).
+		Int("user", os.Geteuid()).
+		Int("group", os.Getgid()).
 		Msg("startup")
 
 	err := New(&http.Server{
