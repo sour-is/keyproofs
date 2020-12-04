@@ -15,16 +15,24 @@ import (
 	"github.com/rs/cors"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
-
 	"gosrc.io/xmpp"
 
 	"github.com/sour-is/keyproofs/pkg/cache"
 	"github.com/sour-is/keyproofs/pkg/config"
 	"github.com/sour-is/keyproofs/pkg/graceful"
-	"github.com/sour-is/keyproofs/pkg/keyproofs"
+	"github.com/sour-is/keyproofs/pkg/httpsrv"
+
+	app_avatar "github.com/sour-is/keyproofs/pkg/app/avatar"
+	app_dns "github.com/sour-is/keyproofs/pkg/app/dns"
+	app_keyproofs "github.com/sour-is/keyproofs/pkg/app/keyproofs"
+	app_vcard "github.com/sour-is/keyproofs/pkg/app/vcard"
+	app_wkd "github.com/sour-is/keyproofs/pkg/app/wkd"
 )
 
 var (
+	// AppName Application Name
+	AppName string = "KeyProofs"
+
 	// AppVersion Application Version Number
 	AppVersion string
 
@@ -48,14 +56,21 @@ func main() {
 	ctx, _ = graceful.WithWaitGroup(ctx)
 
 	cfg := config.New()
-	cfg.Set("app-name", "KeyProofs")
+	cfg.Set("app-name", AppName)
 	cfg.Set("app-version", AppVersion)
 	cfg.Set("build-hash", BuildHash)
 	cfg.Set("build-date", BuildDate)
 	ctx = cfg.Apply(ctx)
 
+	log.Info().
+		Str("app", AppName).
+		Str("version", AppVersion).
+		Str("build-hash", BuildHash).
+		Str("build-date", BuildDate).
+		Msg("startup...")
+
 	if err := run(ctx); err != nil {
-		log.Error().Stack().Err(err).Msg("Application Failed")
+		log.Error().Err(err).Msg("Application Failed")
 		os.Exit(1)
 	}
 }
@@ -63,6 +78,7 @@ func main() {
 func run(ctx context.Context) error {
 	log := log.Ctx(ctx)
 	wg := graceful.WaitGroup(ctx)
+	cfg := config.FromContext(ctx)
 
 	// derive baseURL from listener options
 	listen := env("HTTP_LISTEN", ":9061")
@@ -72,89 +88,83 @@ func run(ctx context.Context) error {
 	}
 	baseURL := fmt.Sprintf("http://%s", host)
 
-	// Set config values
-	cfg := config.FromContext(ctx)
-	cfg.Set("base-url", env("BASE_URL", baseURL))
-	cfg.Set("dns-url", env("DNS_URL", baseURL))
-	cfg.Set("xmpp-url", env("XMPP_URL", baseURL))
-
-	cfg.Set("reddit.api-key", os.Getenv("REDDIT_APIKEY"))
-	cfg.Set("reddit.secret", os.Getenv("REDDIT_SECRET"))
-
-	cfg.Set("xmpp-config", &xmpp.Config{
-		Jid:        os.Getenv("XMPP_USERNAME"),
-		Credential: xmpp.Password(os.Getenv("XMPP_PASSWORD")),
+	// Setup router
+	cors := cors.New(cors.Options{
+		AllowCredentials: true,
+		AllowedMethods:   strings.Fields(env("CORS_METHODS", "GET")),
+		AllowedOrigins:   strings.Fields(env("CORS_ORIGIN", "*")),
 	})
+
+	logFmt := &middleware.DefaultLogFormatter{Logger: accessLog(log.Info)}
 
 	mux := chi.NewRouter()
 	mux.Use(
-		cfg.ApplyHTTP,
-		func(next http.Handler) http.Handler {
-			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				r = r.WithContext(log.WithContext(r.Context()))
-				next.ServeHTTP(w, r)
-			})
-		},
-		secHeaders,
-		cors.New(cors.Options{
-			AllowCredentials: true,
-			AllowedMethods:   strings.Fields(env("CORS_METHODS", "GET")),
-			AllowedOrigins:   strings.Fields(env("CORS_ORIGIN", "*")),
-		}).Handler,
 		middleware.RequestID,
 		middleware.RealIP,
-		middleware.RequestLogger(&middleware.DefaultLogFormatter{Logger: accessLog(log.Info)}),
 		middleware.Recoverer,
+		middleware.RequestLogger(logFmt),
+		secHeaders,
+		cors.Handler,
+		addLogger(log),
+		cfg.ApplyHTTP,
 	)
 
 	if env("DISABLE_KEYPROOF", "false") == "false" {
+		// Set config values
+		cfg.Set("base-url", env("BASE_URL", baseURL))
+		cfg.Set("dns-url", env("DNS_URL", baseURL))
+		cfg.Set("xmpp-url", env("XMPP_URL", baseURL))
+
+		cfg.Set("reddit.api-key", os.Getenv("REDDIT_APIKEY"))
+		cfg.Set("reddit.secret", os.Getenv("REDDIT_SECRET"))
+		cfg.Set("github.secret", os.Getenv("GITHUB_SECRET"))
+
 		// Create cache for promise engine
 		arc, _ := lru.NewARC(4096)
 		c := cache.New(arc)
-		keyproofs.NewKeyProofApp(ctx, c).Routes(mux)
+		app_keyproofs.NewKeyProofApp(ctx, c).Routes(mux)
 	}
 
 	if env("DISABLE_DNS", "false") == "false" {
-		keyproofs.NewDNSApp(ctx).Routes(mux)
+		app_dns.New(ctx).Routes(mux)
 	}
 
 	if env("DISABLE_AVATAR", "false") == "false" {
-		avatarApp, err := keyproofs.NewAvatarApp(ctx, env("AVATAR_PATH", "pub"))
+		app, err := app_avatar.New(ctx, env("AVATAR_PATH", "pub"))
 		if err != nil {
 			return err
 		}
 
-		avatarApp.Routes(mux)
+		app.Routes(mux)
 	}
 
 	if env("DISABLE_WKD", "false") == "false" {
-		avatarApp, err := keyproofs.NewWKDApp(ctx, env("WKD_PATH", "pub"), env("WKD_DOMAIN", "pub"))
+		app, err := app_wkd.New(ctx, env("WKD_PATH", "pub"), env("WKD_DOMAIN", "pub"))
 		if err != nil {
 			return err
 		}
 
-		avatarApp.Routes(mux)
+		app.Routes(mux)
 	}
 
 	if env("DISABLE_VCARD", "false") == "false" {
-		vcardApp, err := keyproofs.NewVCardApp(ctx)
+		app, err := app_vcard.New(ctx, &xmpp.Config{
+			Jid:        os.Getenv("XMPP_USERNAME"),
+			Credential: xmpp.Password(os.Getenv("XMPP_PASSWORD")),
+		})
 		if err != nil {
 			return err
 		}
-		vcardApp.Routes(mux)
+		app.Routes(mux)
 	}
 
 	log.Info().
-		Str("app", cfg.GetString("app-name")).
-		Str("version", cfg.GetString("app-version")).
-		Str("build-hash", cfg.GetString("build-hash")).
-		Str("build-date", cfg.GetString("build-date")).
 		Str("listen", listen).
 		Int("user", os.Geteuid()).
 		Int("group", os.Getgid()).
-		Msg("startup")
+		Msg("running")
 
-	err := New(&http.Server{
+	err := httpsrv.New(&http.Server{
 		Addr:         listen,
 		WriteTimeout: 15 * time.Second,
 		ReadTimeout:  15 * time.Second,
@@ -165,41 +175,6 @@ func run(ctx context.Context) error {
 	}
 
 	return wg.Wait(5 * time.Second)
-}
-
-type Server struct {
-	srv *http.Server
-}
-
-func New(s *http.Server) *Server {
-	return &Server{srv: s}
-}
-func (s *Server) Run(ctx context.Context) error {
-	log := log.Ctx(ctx)
-	wg := graceful.WaitGroup(ctx)
-
-	wg.Go(func() error {
-		<-ctx.Done()
-		log.Info().Msg("Shutdown HTTP")
-
-		ctx := context.Background()
-		ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-		defer cancel()
-		err := s.srv.Shutdown(ctx)
-		if err != nil && err != http.ErrServerClosed {
-			return err
-		}
-
-		log.Info().Msg("Stopped  HTTP")
-		return nil
-	})
-
-	err := s.srv.ListenAndServe()
-	if err != nil && err != http.ErrServerClosed {
-		return err
-	}
-
-	return nil
 }
 
 func env(name, defaultValue string) string {
@@ -226,4 +201,13 @@ type accessLog func() *zerolog.Event
 
 func (a accessLog) Print(v ...interface{}) {
 	a().Msg(fmt.Sprint(v...))
+}
+
+func addLogger(log *zerolog.Logger) func(next http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			r = r.WithContext(log.WithContext(r.Context()))
+			next.ServeHTTP(w, r)
+		})
+	}
 }

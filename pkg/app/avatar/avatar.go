@@ -1,4 +1,4 @@
-package keyproofs
+package app_avatar
 
 import (
 	"context"
@@ -21,17 +21,20 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/sour-is/keyproofs/pkg/graceful"
+	"github.com/sour-is/keyproofs/pkg/style"
 )
 
-type avatarApp struct {
+var pixl = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="
+
+type avatar struct {
 	path string
 }
 
-func NewAvatarApp(ctx context.Context, path string) (*avatarApp, error) {
+func New(ctx context.Context, path string) (*avatar, error) {
 	log := log.Ctx(ctx)
 
 	path = filepath.Clean(path)
-	app := &avatarApp{path: path}
+	app := &avatar{path: path}
 	err := app.CheckFiles(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("check files: %w", err)
@@ -84,7 +87,7 @@ func NewAvatarApp(ctx context.Context, path string) (*avatarApp, error) {
 	return app, nil
 }
 
-func (app *avatarApp) CheckFiles(ctx context.Context) error {
+func (app *avatar) CheckFiles(ctx context.Context) error {
 	log := log.Ctx(ctx)
 
 	for _, name := range []string{".links", "avatar", "bg", "cover"} {
@@ -118,7 +121,7 @@ func (app *avatarApp) CheckFiles(ctx context.Context) error {
 	})
 }
 
-func (app *avatarApp) get(w http.ResponseWriter, r *http.Request) {
+func (app *avatar) get(w http.ResponseWriter, r *http.Request) {
 	log := log.Ctx(r.Context())
 
 	log.Print(r.Host)
@@ -133,7 +136,7 @@ func (app *avatarApp) get(w http.ResponseWriter, r *http.Request) {
 	log.Debug().Int("width", sizeW).Int("height", sizeH).Bool("resize", resize).Str("kind", kind).Msg("Get Image")
 
 	if strings.ContainsRune(hash, '@') {
-		avatarHost, _, err := styleSRV(r.Context(), hash)
+		avatarHost, _, err := style.GetSRV(r.Context(), hash)
 		if err != nil {
 			writeText(w, 500, err.Error())
 			return
@@ -213,7 +216,7 @@ func (app *avatarApp) get(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (app *avatarApp) Routes(r *chi.Mux) {
+func (app *avatar) Routes(r *chi.Mux) {
 	r.MethodFunc("GET", "/{kind:avatar|bg|cover}/{hash}", app.get)
 }
 
@@ -228,7 +231,7 @@ func hashSHA256(name string) string {
 	return hashString(name, sha256.New())
 }
 
-func (app *avatarApp) createLinks(kind, name string) error {
+func (app *avatar) createLinks(kind, name string) error {
 	if !strings.ContainsRune(name, '@') {
 		return nil
 	}
@@ -250,7 +253,7 @@ func (app *avatarApp) createLinks(kind, name string) error {
 	return err
 }
 
-func (app *avatarApp) removeLinks(kind, name string) error {
+func (app *avatar) removeLinks(kind, name string) error {
 	if !strings.ContainsRune(name, '@') {
 		return nil
 	}
@@ -270,7 +273,7 @@ func (app *avatarApp) removeLinks(kind, name string) error {
 	return err
 }
 
-func (app *avatarApp) replaceLink(src, link string) error {
+func (app *avatar) replaceLink(src, link string) error {
 	if dst, err := os.Readlink(link); err != nil {
 		if os.IsNotExist(err) {
 			err = os.Symlink(src, link)
@@ -341,4 +344,11 @@ func clamp(min, max, size int) int {
 	}
 
 	return size
+}
+
+// WriteText writes plain text
+func writeText(w http.ResponseWriter, code int, o string) {
+	w.Header().Set("Content-Type", "text/plain")
+	w.WriteHeader(code)
+	_, _ = w.Write([]byte(o))
 }

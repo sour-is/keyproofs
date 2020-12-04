@@ -1,4 +1,4 @@
-package keyproofs
+package app_keyproofs
 
 import (
 	"context"
@@ -16,7 +16,10 @@ import (
 
 	"github.com/sour-is/keyproofs/pkg/cache"
 	"github.com/sour-is/keyproofs/pkg/config"
+	"github.com/sour-is/keyproofs/pkg/opgp"
+	"github.com/sour-is/keyproofs/pkg/opgp/entity"
 	"github.com/sour-is/keyproofs/pkg/promise"
+	"github.com/sour-is/keyproofs/pkg/style"
 )
 
 var expireAfter = 20 * time.Minute
@@ -26,11 +29,11 @@ var runnerTimeout = 30 * time.Second
 var pixl = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="
 var keypng, _ = base64.StdEncoding.DecodeString("iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAABKUlEQVQ4jZ2SvUoDURCFUy/Y2Fv4BoKIiFgLSWbmCWw0e3cmNgGfwacQsbCxUEFEEIVkxsQulaK1kheIiFVW1mJXiZv904FbXb5zzvzUaiWlPqyYwIkyvRjjqwmeaauxUcbFMKOvTKEJRVPv05hCY9wrhHt+fckEJ79gxg9rweJN8qdSkESZjlLOkQm+Xe9szlubFkxwYoznuQIm9DgrQJEyjZXpPU5Eo6L+H7IEUmJFAnBQJmAMp5nw0IFnjFoiEGrQXJuBLx14JtgtiR5qAO2c4aFLAffGeGiMT8b0rAEe96WxnBlbGbbia/vZ+2CwjXO5g0pN/TZ1NNXgoQPPHO2aJLsViu4E+xdVnXsOOtPOMbxeDY6jw/6/nL+r6+qryjQyhqs/OSf1Bf+pJC1wKqO/AAAAAElFTkSuQmCC")
 
-var defaultStyle = &Style{
+var defaultStyle = &style.Style{
 	Avatar:     pixl,
 	Cover:      pixl,
 	Background: pixl,
-	Palette:    getPalette("#93CCEA"),
+	Palette:    style.GetPalette("#93CCEA"),
 }
 
 type keyproofApp struct {
@@ -70,24 +73,24 @@ func (app *keyproofApp) getProofs(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	// Run tasks to resolve entity, style, and proofs.
-	task := app.tasker.Run(EntityKey(id), func(q promise.Q) {
+	task := app.tasker.Run(entity.Key(id), func(q promise.Q) {
 		ctx := q.Context()
 		log := zlog.Ctx(ctx).With().Interface(fmtKey(q), q.Key()).Logger()
 
-		key := q.Key().(EntityKey)
+		key := q.Key().(entity.Key)
 
-		entity, err := getOpenPGPkey(ctx, string(key))
+		e, err := opgp.GetKey(ctx, string(key))
 		if err != nil {
 			q.Reject(err)
 			return
 		}
 
 		log.Debug().Msg("Resolving Entity")
-		q.Resolve(entity)
+		q.Resolve(e)
 	})
 
 	task.After(func(q promise.ResultQ) {
-		entity := q.Result().(*Entity)
+		entity := q.Result().(*entity.Entity)
 
 		zlog.Ctx(q.Context()).
 			Info().
@@ -95,14 +98,14 @@ func (app *keyproofApp) getProofs(w http.ResponseWriter, r *http.Request) {
 			Interface(fmtKey(q), q.Key()).
 			Msg("Do Style ")
 
-		q.Run(StyleKey(entity.Primary.Address), func(q promise.Q) {
+		q.Run(style.Key(entity.Primary.Address), func(q promise.Q) {
 			ctx := q.Context()
 			log := zlog.Ctx(ctx).With().Interface(fmtKey(q), q.Key()).Logger()
 
-			key := q.Key().(StyleKey)
+			key := q.Key().(style.Key)
 
 			log.Debug().Msg("start task")
-			style, err := getStyle(ctx, string(key))
+			style, err := style.GetStyle(ctx, string(key))
 			if err != nil {
 				q.Reject(err)
 				return
@@ -114,7 +117,7 @@ func (app *keyproofApp) getProofs(w http.ResponseWriter, r *http.Request) {
 	})
 
 	task.After(func(q promise.ResultQ) {
-		entity := q.Result().(*Entity)
+		entity := q.Result().(*entity.Entity)
 		log := zlog.Ctx(ctx).
 			With().
 			Interface(fmtKey(q), q.Key()).
@@ -158,12 +161,12 @@ func (app *keyproofApp) getProofs(w http.ResponseWriter, r *http.Request) {
 			page.IsComplete = true
 			break
 		}
-		page.Entity = task.Result().(*Entity)
+		page.Entity = task.Result().(*entity.Entity)
 
 	case <-ctx.Done():
 		log.Print("Deadline Timeout")
-		if e, ok := app.cache.Get(EntityKey(id)); ok {
-			page.Entity = e.Value().(*Entity)
+		if e, ok := app.cache.Get(entity.Key(id)); ok {
+			page.Entity = e.Value().(*entity.Entity)
 		}
 	}
 
@@ -171,8 +174,8 @@ func (app *keyproofApp) getProofs(w http.ResponseWriter, r *http.Request) {
 	if page.Entity != nil {
 		var gotStyle, gotProofs bool
 
-		if s, ok := app.cache.Get(StyleKey(page.Entity.Primary.Address)); ok {
-			page.Style = s.Value().(*Style)
+		if s, ok := app.cache.Get(style.Key(page.Entity.Primary.Address)); ok {
+			page.Style = s.Value().(*style.Style)
 			gotStyle = true
 		}
 

@@ -1,4 +1,4 @@
-package keyproofs
+package app_wkd
 
 import (
 	"context"
@@ -17,8 +17,10 @@ import (
 	"github.com/go-chi/chi"
 	"github.com/rs/zerolog/log"
 	"github.com/sour-is/crypto/openpgp"
-	"github.com/sour-is/keyproofs/pkg/graceful"
 	"github.com/tv42/zbase32"
+
+	"github.com/sour-is/keyproofs/pkg/graceful"
+	"github.com/sour-is/keyproofs/pkg/opgp/entity"
 )
 
 type wkdApp struct {
@@ -26,7 +28,7 @@ type wkdApp struct {
 	domain string
 }
 
-func NewWKDApp(ctx context.Context, path, domain string) (*wkdApp, error) {
+func New(ctx context.Context, path, domain string) (*wkdApp, error) {
 	log := log.Ctx(ctx)
 	log.Debug().Str("domain", domain).Str("path", path).Msg("NewWKDApp")
 
@@ -291,7 +293,7 @@ func (app *wkdApp) postKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	entity, err := getEntity(lis)
+	e, err := entity.GetOne(lis)
 	if err != nil {
 		log.Err(err).Send()
 		writeText(w, http.StatusBadRequest, "ERR ENTITY")
@@ -299,7 +301,7 @@ func (app *wkdApp) postKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	fname := filepath.Join(app.path, "keys", entity.Primary.Address)
+	fname := filepath.Join(app.path, "keys", e.Primary.Address)
 
 	f, err := os.Open(fname)
 	if os.IsNotExist(err) {
@@ -311,7 +313,7 @@ func (app *wkdApp) postKey(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		err = entity.Serialize(out)
+		err = e.Serialize(out)
 		if err != nil {
 			log.Err(err).Send()
 			writeText(w, http.StatusInternalServerError, "ERR WRITE")
@@ -332,7 +334,7 @@ func (app *wkdApp) postKey(w http.ResponseWriter, r *http.Request) {
 	}
 	f.Close()
 
-	compare, err := getEntity(current)
+	compare, err := entity.GetOne(current)
 	if err != nil {
 		log.Err(err).Send()
 		writeText(w, http.StatusInternalServerError, "ERR PARSE")
@@ -340,20 +342,20 @@ func (app *wkdApp) postKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if entity.Fingerprint != compare.Fingerprint {
+	if e.Fingerprint != compare.Fingerprint {
 		w.Header().Set("X-HKP-Status", "Mismatch fingerprint")
 		writeText(w, http.StatusBadRequest, "ERR FINGERPRINT")
 		return
 	}
-	if entity.SelfSignature == nil || compare.SelfSignature == nil {
+	if e.SelfSignature == nil || compare.SelfSignature == nil {
 		w.Header().Set("X-HKP-Status", "Missing signature")
 		writeText(w, http.StatusBadRequest, "ERR SIGNATURE")
 		return
 	}
 
-	log.Debug().Msgf("%v < %v", entity.SelfSignature.CreationTime, compare.SelfSignature.CreationTime)
+	log.Debug().Msgf("%v < %v", e.SelfSignature.CreationTime, compare.SelfSignature.CreationTime)
 
-	if !compare.SelfSignature.CreationTime.Before(entity.SelfSignature.CreationTime) {
+	if !compare.SelfSignature.CreationTime.Before(e.SelfSignature.CreationTime) {
 		w.Header().Set("X-HKP-Status", "out of date")
 		writeText(w, http.StatusBadRequest, "ERR OUT OF DATE")
 
@@ -368,7 +370,7 @@ func (app *wkdApp) postKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = entity.Serialize(out)
+	err = e.Serialize(out)
 	if err != nil {
 		log.Err(err).Send()
 		writeText(w, http.StatusInternalServerError, "ERR WRITE")
@@ -378,4 +380,11 @@ func (app *wkdApp) postKey(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("X-HKP-Status", "Updated key")
 	writeText(w, http.StatusOK, "OK UPDATED")
+}
+
+// WriteText writes plain text
+func writeText(w http.ResponseWriter, code int, o string) {
+	w.Header().Set("Content-Type", "text/plain")
+	w.WriteHeader(code)
+	_, _ = w.Write([]byte(o))
 }

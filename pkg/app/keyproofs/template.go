@@ -1,10 +1,15 @@
-package keyproofs
+package app_keyproofs
+
+import (
+	"github.com/sour-is/keyproofs/pkg/opgp/entity"
+	"github.com/sour-is/keyproofs/pkg/style"
+)
 
 type page struct {
 	AppName  string
 	AppBuild string
-	Entity   *Entity
-	Style    *Style
+	Entity   *entity.Entity
+	Style    *style.Style
 	Proofs   *Proofs
 
 	Markdown   string
@@ -228,7 +233,11 @@ var proofTPL = `
 			<div class="card">
 				<div class="card-header">Public Key</div>
 				<div class="card-body scroll">
-					<pre><code>{{.Entity.ArmorText}}</code></pre>
+					<pre><code>
+Last Updated {{.Entity.SelfSignature.CreationTime}}
+
+{{.Entity.ArmorText}}
+</code></pre>
 				</div>
 			</div>
 		</div>

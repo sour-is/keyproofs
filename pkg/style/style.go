@@ -1,4 +1,4 @@
-package keyproofs
+package style
 
 import (
 	"context"
@@ -11,9 +11,11 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-type StyleKey string
+var pixl = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="
 
-func (s StyleKey) Key() interface{} {
+type Key string
+
+func (s Key) Key() interface{} {
 	return s
 }
 
@@ -25,10 +27,10 @@ type Style struct {
 	Palette []string
 }
 
-func getStyle(ctx context.Context, email string) (*Style, error) {
+func GetStyle(ctx context.Context, email string) (*Style, error) {
 	log := log.Ctx(ctx)
 
-	avatarHost, styleHost, err := styleSRV(ctx, email)
+	avatarHost, styleHost, err := GetSRV(ctx, email)
 	if err != nil {
 		return nil, err
 	}
@@ -41,10 +43,10 @@ func getStyle(ctx context.Context, email string) (*Style, error) {
 
 	style := &Style{}
 
-	style.Palette = getPalette(fmt.Sprintf("#%x", id[:3]))
+	style.Palette = GetPalette(fmt.Sprintf("#%x", id[:3]))
 	style.Avatar = fmt.Sprintf("https://%s/avatar/%x", avatarHost, id)
 	style.Cover = pixl
-	style.Background = "https://lavana.sour.is/bg/52548b3dcb032882675afe1e4bcba0e9"
+	style.Background = pixl
 
 	if styleHost != "" {
 		style.Cover = fmt.Sprintf("https://%s/cover/%x", styleHost, id)
@@ -54,11 +56,11 @@ func getStyle(ctx context.Context, email string) (*Style, error) {
 	return style, err
 }
 
-func styleSRV(ctx context.Context, email string) (avatar string, style string, err error) {
+func GetSRV(ctx context.Context, email string) (avatar string, style string, err error) {
 
 	// Defaults
 	style = ""
-	avatar = "www.gravatar.com"
+	avatar = "www.libravatar.org"
 
 	parts := strings.SplitN(email, "@", 2)
 	if _, srv, err := net.DefaultResolver.LookupSRV(ctx, "style-sec", "tcp", parts[1]); err == nil {
@@ -82,7 +84,7 @@ func styleSRV(ctx context.Context, email string) (avatar string, style string, e
 }
 
 // getPalette maes a complementary color palette. https://play.golang.org/p/nBXLUocGsU5
-func getPalette(hex string) []string {
+func GetPalette(hex string) []string {
 	reference, _ := colorful.Hex(hex)
 	reference = sat(lum(reference, 0, .5), 0, .5)
 

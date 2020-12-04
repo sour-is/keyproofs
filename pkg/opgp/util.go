@@ -1,4 +1,4 @@
-package keyproofs
+package opgp
 
 import (
 	"bytes"
@@ -13,12 +13,12 @@ import (
 
 	"github.com/rs/zerolog/log"
 	"github.com/sour-is/crypto/openpgp"
-	"github.com/sour-is/crypto/openpgp/packet"
+	"github.com/sour-is/keyproofs/pkg/opgp/entity"
 	"github.com/tv42/zbase32"
 	"golang.org/x/crypto/openpgp/armor"
 )
 
-func getOpenPGPkey(ctx context.Context, id string) (entity *Entity, err error) {
+func GetKey(ctx context.Context, id string) (entity *entity.Entity, err error) {
 	if isFingerprint(id) {
 		addr := "https://keys.openpgp.org/vks/v1/by-fingerprint/" + strings.ToUpper(id)
 		return getEntityHTTP(ctx, addr, true)
@@ -41,7 +41,7 @@ func getOpenPGPkey(ctx context.Context, id string) (entity *Entity, err error) {
 	}
 }
 
-func getEntityHTTP(ctx context.Context, url string, useArmored bool) (entity *Entity, err error) {
+func getEntityHTTP(ctx context.Context, url string, useArmored bool) (entity *entity.Entity, err error) {
 	log := log.Ctx(ctx)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
@@ -72,90 +72,11 @@ func getEntityHTTP(ctx context.Context, url string, useArmored bool) (entity *En
 	return ReadKey(resp.Body, useArmored)
 }
 
-type EntityKey string
-
-func (k EntityKey) Key() interface{} {
-	return k
-}
-
-type Entity struct {
-	Primary       *mail.Address
-	SelfSignature *packet.Signature
-	Emails        []*mail.Address
-	Fingerprint   string
-	Proofs        []string
-	ArmorText     string
-	entity        *openpgp.Entity
-}
-
-func (e *Entity) Serialize(f io.Writer) error {
-	return e.entity.Serialize(f)
-}
-
-func getEntity(lis openpgp.EntityList) (*Entity, error) {
-	entity := &Entity{}
-	var err error
-
-	for _, e := range lis {
-		if e == nil {
-			continue
-		}
-		if e.PrimaryKey == nil {
-			continue
-		}
-
-		entity.entity = e
-		entity.Fingerprint = fmt.Sprintf("%X", e.PrimaryKey.Fingerprint)
-
-		for name, ident := range e.Identities {
-			// Pick first identity
-			if entity.Primary == nil {
-				entity.Primary, err = mail.ParseAddress(name)
-				if err != nil {
-					return entity, err
-				}
-			}
-			// If one is marked primary use that
-			if ident.SelfSignature != nil && ident.SelfSignature.IsPrimaryId != nil && *ident.SelfSignature.IsPrimaryId {
-				entity.Primary, err = mail.ParseAddress(name)
-				if err != nil {
-					return entity, err
-				}
-
-			} else {
-				var email *mail.Address
-				if email, err = mail.ParseAddress(name); err != nil {
-					return entity, err
-				}
-				if email.Address != entity.Primary.Address {
-					entity.Emails = append(entity.Emails, email)
-				}
-			}
-
-			// If identity is self signed read notation data.
-			if ident.SelfSignature != nil && ident.SelfSignature.NotationData != nil {
-				entity.SelfSignature = ident.SelfSignature
-				// Get proofs and append to list.
-				if proofs, ok := ident.SelfSignature.NotationData["proof@metacode.biz"]; ok {
-					entity.Proofs = append(entity.Proofs, proofs...)
-				}
-			}
-		}
-		break
-	}
-
-	if entity.Primary == nil {
-		entity.Primary, _ = mail.ParseAddress("nobody@nodomain.xyz")
-	}
-
-	return entity, err
-}
-
-func ReadKey(r io.Reader, useArmored bool) (e *Entity, err error) {
+func ReadKey(r io.Reader, useArmored bool) (e *entity.Entity, err error) {
 	var buf bytes.Buffer
 
 	var w io.Writer = &buf
-	e = &Entity{}
+	e = &entity.Entity{}
 
 	defer func() {
 		if e != nil {
@@ -187,7 +108,7 @@ func ReadKey(r io.Reader, useArmored bool) (e *Entity, err error) {
 		return e, fmt.Errorf("Read key: %w", err)
 	}
 
-	e, err = getEntity(lis)
+	e, err = entity.GetOne(lis)
 	if err != nil {
 		return e, fmt.Errorf("Parse key: %w", err)
 	}

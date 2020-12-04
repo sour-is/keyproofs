@@ -1,4 +1,4 @@
-package keyproofs
+package app_keyproofs
 
 import (
 	"bufio"
