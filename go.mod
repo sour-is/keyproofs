@@ -24,5 +24,4 @@ require (
 	golang.org/x/net v0.0.0-20201110031124-69a78807bb2b // indirect
 	golang.org/x/text v0.3.4 // indirect
 	gosrc.io/xmpp v0.5.1
-	sour.is/x/toolbox v0.12.17
 )
