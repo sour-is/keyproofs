@@ -20,7 +20,7 @@ require (
 	github.com/tv42/zbase32 v0.0.0-20190604154422-aacc64a8f915
 	go.uber.org/multierr v1.6.0
 	go.uber.org/ratelimit v0.1.0
-	golang.org/x/crypto v0.0.0-20201124201722-c8d3bf9c5392
+	golang.org/x/crypto v0.0.0-20201208171446-5f87f3452ae9
 	golang.org/x/net v0.0.0-20201110031124-69a78807bb2b // indirect
 	golang.org/x/text v0.3.4 // indirect
 	gosrc.io/xmpp v0.5.1
