@@ -197,7 +197,7 @@ func (app *wkdApp) createLinks(kind, name string) error {
 	src := filepath.Join("..", kind, name)
 	name = strings.ToLower(name)
 
-	hash, domain := hashHuman(name)
+	hash, _ := hashHuman(name)
 	link := filepath.Join(app.path, ".links", strings.Join([]string{kind, hash}, "-"))
 	err := app.replaceLink(src, link)
 	if err != nil {
@@ -221,7 +221,7 @@ func (app *wkdApp) removeLinks(kind, name string) error {
 	}
 	name = strings.ToLower(name)
 
-	hash, domain := hashHuman(name)
+	hash, _ := hashHuman(name)
 	link := filepath.Join(app.path, ".links", strings.Join([]string{kind, hash}, "-"))
 	err := os.Remove(link)
 	if err != nil {
