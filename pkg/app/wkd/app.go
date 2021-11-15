@@ -156,6 +156,11 @@ func (app *wkdApp) get(w http.ResponseWriter, r *http.Request) {
 	log.Print(r.Host)
 
 	hash := chi.URLParam(r, "hash")
+	if hash == "policy" {
+		writeText(w, 200, "")
+		return
+	}
+
 	domain := chi.URLParam(r, "domain")
 	if domain == "" {
 		domain = app.domain
@@ -186,7 +191,7 @@ func (app *wkdApp) Routes(r *chi.Mux) {
 	r.MethodFunc("GET", "/key/{hash}", app.get)
 	r.MethodFunc("POST", "/pks/add", app.postKey)
 	r.MethodFunc("GET", "/.well-known/openpgpkey/hu/{hash}", app.get)
-	r.MethodFunc("GET", "/.well-known/openpgpkey/hu/{domain}/{hash}", app.get)
+	r.MethodFunc("GET", "/.well-known/openpgpkey/{domain}/hu/{hash}", app.get)
 }
 
 func (app *wkdApp) createLinks(kind, name string) error {
