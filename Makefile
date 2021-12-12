@@ -36,3 +36,4 @@ install: $(NAME)
 	install ./$(NAME) /usr/local/bin
 	install ./$(NAME).service /lib/systemd/system
 	systemctl daemon-reload
+	systemctl restart $(NAME)

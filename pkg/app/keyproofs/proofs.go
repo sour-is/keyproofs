@@ -206,7 +206,7 @@ func NewProof(ctx context.Context, uri, fingerprint string) ProofResolver {
 				return &httpResolve{p, url, nil}
 			}
 
-		case strings.Contains(p.URI.Path, "/conv/"), strings.Contains(p.URI.Path, "/twt/"):
+		case strings.Contains(p.URI.Path, "/conv/"):
 			if sp := strings.SplitN(p.URI.Path, "/", 3); len(sp) == 3 {
 				p.Icon = "fas fa-comment-alt"
 				p.Service = "Twtxt"
@@ -215,6 +215,17 @@ func NewProof(ctx context.Context, uri, fingerprint string) ProofResolver {
 
 				url := fmt.Sprintf("https://%s/api/v1/conv", p.URI.Host)
 				return &twtxtResolve{p, url, sp[2], nil}
+			}
+
+		case strings.Contains(p.URI.Path, "/twt/"):
+			if sp := strings.SplitN(p.URI.Path, "/", 3); len(sp) == 3 {
+				p.Icon = "fas fa-comment-alt"
+				p.Service = "Twtxt"
+				p.Name = fmt.Sprintf("...@%s", p.URI.Host)
+				p.Link = fmt.Sprintf("https://%s", p.URI.Host)
+
+				url := fmt.Sprintf("https://%s/twt/%v", p.URI.Host, sp[2])
+				return &httpResolve{p, url, nil}
 			}
 
 		default:

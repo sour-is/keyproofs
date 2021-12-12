@@ -137,7 +137,7 @@ func (app *wkdApp) getRedirect(w http.ResponseWriter, r *http.Request) {
 		log.Debug().Str("hash", hash).Str("domain", domain).Msg("redirect")
 		if host, adv := getWKDDomain(ctx, domain); adv {
 			log.Debug().Str("host", host).Str("domain", domain).Bool("adv", adv).Msg("redirect")
-			http.Redirect(w, r, fmt.Sprintf("https://%s/.well-known/openpgpkey/hu/%s/%s", host, domain, hash), http.StatusTemporaryRedirect)
+			http.Redirect(w, r, fmt.Sprintf("https://%s/.well-known/openpgpkey/%s/hu/%s", host, domain, hash), http.StatusTemporaryRedirect)
 		} else {
 			log.Debug().Str("host", host).Str("domain", domain).Bool("adv", adv).Msg("redirect")
 			http.Redirect(w, r, fmt.Sprintf("https://%s/.well-known/openpgpkey/hu/%s", domain, hash), http.StatusTemporaryRedirect)
@@ -149,18 +149,18 @@ func (app *wkdApp) getRedirect(w http.ResponseWriter, r *http.Request) {
 	writeText(w, http.StatusBadRequest, "Bad Request")
 }
 
+func (app *wkdApp) getPolicy(w http.ResponseWriter, r *http.Request) {
+	writeText(w, 200, "")
+	return
+}
+
 func (app *wkdApp) get(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	log := log.Ctx(ctx)
 
-	log.Print(r.Host)
+	log.Debug().Msgf("Host: %v %v %v", r.Host, app.domain, "foo")
 
 	hash := chi.URLParam(r, "hash")
-	if hash == "policy" {
-		writeText(w, 200, "")
-		return
-	}
-
 	domain := chi.URLParam(r, "domain")
 	if domain == "" {
 		domain = app.domain
@@ -192,6 +192,8 @@ func (app *wkdApp) Routes(r *chi.Mux) {
 	r.MethodFunc("POST", "/pks/add", app.postKey)
 	r.MethodFunc("GET", "/.well-known/openpgpkey/hu/{hash}", app.get)
 	r.MethodFunc("GET", "/.well-known/openpgpkey/{domain}/hu/{hash}", app.get)
+	r.MethodFunc("GET", "/.well-known/openpgpkey/policy", app.getPolicy)
+	r.MethodFunc("GET", "/.well-known/openpgpkey/{domain}/policy", app.getPolicy)
 }
 
 func (app *wkdApp) createLinks(kind, name string) error {

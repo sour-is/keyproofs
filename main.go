@@ -139,7 +139,7 @@ func run(ctx context.Context) error {
 	}
 
 	if env("DISABLE_WKD", "false") == "false" {
-		app, err := app_wkd.New(ctx, env("WKD_PATH", "pub"), env("WKD_DOMAIN", "pub"))
+		app, err := app_wkd.New(ctx, env("WKD_PATH", "pub"), env("WKD_DOMAIN", "sour.is"))
 		if err != nil {
 			return err
 		}
