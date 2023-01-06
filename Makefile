@@ -3,7 +3,8 @@ BUMP?=current
 DATE:=$(shell date -u +%FT%TZ)
 HASH:=$(shell git rev-parse HEAD 2> /dev/null)
 VERSION:=$(shell BUMP=$(BUMP) ./version.sh)
-
+-include local.mk
+DISABLE_VCARD=true
 
 build: $(NAME)
 
@@ -12,11 +13,14 @@ clean:
 
 version:
 	@echo $(VERSION)
+
 tag:
 	git tag -a v$(VERSION) -m "Version: $(VERSION)"
 	git push --follow-tags
+
 release:
 	@make tag BUMP=patch
+
 run:
 	go run -v \
            -ldflags "\

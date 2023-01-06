@@ -22,6 +22,7 @@ require (
 	go.uber.org/ratelimit v0.1.0
 	golang.org/x/crypto v0.0.0-20201208171446-5f87f3452ae9
 	golang.org/x/net v0.0.0-20201110031124-69a78807bb2b // indirect
+	golang.org/x/sys v0.3.0 // indirect
 	golang.org/x/text v0.3.4 // indirect
 	gosrc.io/xmpp v0.5.1
 )

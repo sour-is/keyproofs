@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # Increment a version string using Semantic Versioning (SemVer) terminology.
-
 # Parse command line options.
+BUMP="${BUMP:="$1"}"
 
 case $BUMP in
   current ) ;;
@@ -11,43 +11,43 @@ case $BUMP in
   patch   ) patch=true;;
 esac
 
-version=$(git describe --tags `git rev-list --tags --max-count=1 2> /dev/null` 2> /dev/null|cut -b2-)
+version=$(git describe --tags "$(git rev-list --tags --max-count=1 2> /dev/null)" 2> /dev/null|cut -b2-)
 
 # Build array from version string.
 
-a=( ${version//./ } )
+IFS="." read -r -a a <<< "$version"
 
 # If version string is missing or has the wrong number of members, show usage message.
 
 if [ ${#a[@]} -ne 3 ]
 then
   version=0.0.0
-  a=( ${version//./ } )
+  IFS="." read -r -a a <<< "$version"
 fi
 
 # Increment version numbers as requested.
 
-if [ ! -z $major ]
+if [ -n "$major" ]
 then
   ((a[0]++))
   a[1]=0
   a[2]=0
 fi
 
-if [ ! -z $minor ]
+if [ -n "$minor" ]
 then
   ((a[1]++))
   a[2]=0
 fi
 
-if [ ! -z $patch ]
+if [ -n "$patch" ]
 then
   ((a[2]++))
 fi
 
 if git status --porcelain >/dev/null
 then
-  echo "${a[0]}.${a[1]}.${a[2]}"
+  echo "v${a[0]}.${a[1]}.${a[2]}"
 else
-  echo "${a[0]}.${a[1]}.${a[2]}-dirty"
+  echo "v${a[0]}.${a[1]}.${a[2]}-dirty"
 fi
