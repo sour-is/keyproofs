@@ -15,6 +15,7 @@ import (
 	"github.com/rs/cors"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+	"gosrc.io/xmpp"
 
 	"github.com/sour-is/keyproofs/pkg/cache"
 	"github.com/sour-is/keyproofs/pkg/config"
@@ -24,6 +25,7 @@ import (
 	app_avatar "github.com/sour-is/keyproofs/pkg/app/avatar"
 	app_dns "github.com/sour-is/keyproofs/pkg/app/dns"
 	app_keyproofs "github.com/sour-is/keyproofs/pkg/app/keyproofs"
+	app_vcard "github.com/sour-is/keyproofs/pkg/app/vcard"
 	app_wkd "github.com/sour-is/keyproofs/pkg/app/wkd"
 )
 
